@@ -1,0 +1,489 @@
+//css
+.changed {
+    background: lightyellow;
+}
+lightning-card.slds-card_boundary.slds-m-vertical_small {
+    display: block;
+}
+div.loadingOverlay {
+    display: none;
+    opacity: 0;
+    transition: all 0.3s;
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: -9999;
+    background: rgba(255,255,255,0.5);
+    text-align: center;
+    vertical-align: middle;
+}
+div.loading {
+    position: relative;
+}
+div.loading div.loadingOverlay {
+    display: table-cell;
+    z-index: 99;
+    opacity: 1;
+}
+.slds-clearfix {
+    clear: both;
+}
+
+//html
+<template>
+    <div class={loadingClass}>
+        <div class="loadingOverlay">
+            <lightning-spinner alternative-text="Loading..." size="large"></lightning-spinner>
+        </div>
+
+        <h1 if:true={parent}>Parent:</h1>
+        <lightning-card title={parentTitle}>
+            <div slot="actions">
+                <lightning-button
+                    label="Refresh"
+                    icon-name="utility:refresh"
+                    class="slds-m-right_small"
+                    onclick={refresh}></lightning-button>
+                <lightning-button
+                    label="New Opportunity"
+                    if:true={accountSelected}
+                    class="slds-m-right_small"
+                    disabled={isChanged}
+                    onclick={handleOpenModal}></lightning-button>
+                <lightning-button 
+                    label="Save Changes" 
+                    variant="brand"
+                    disabled={isNotChanged}
+                    onclick={handleSave}></lightning-button>
+            </div>
+        </lightning-card>
+
+        <div class="slds-float_right">
+            <a onclick={handleUnselectAll}>Unselect All</a> | <a onclick={handleSelectAll}>Select All</a>
+        </div>
+
+        <div class="slds-clearfix"></div>
+        
+        <div if:true={record}>
+            <lightning-card if:true={record.isNotParent} class="slds-card_boundary slds-m-vertical_small">
+                <h2 class="slds-text-heading_small" slot="title">
+                    <lightning-icon icon-name={record.iconname} size="x-small" class="slds-m-right_small" data-rid={record.Id} onclick={handleToggle}></lightning-icon>
+                    <a href={record.url} onclick={record.onClick}>{record.title}</a>
+                </h2>
+                <div slot="actions">
+                    <lightning-input 
+                        type="checkbox" 
+                        data-rid={record.Id} 
+                        onclick={handleSelect} 
+                        checked={record.isChecked}
+                        title="Select this Account for Opportunity Creation and Editing"></lightning-input>
+                </div>
+                <div class={record.detailclass}>
+                    <template for:each={record.opps} for:item="opp">
+                        <div class={opp.class} key={opp.Id}>
+                            <c-bulk-opportunity-row opp={opp} parent-id={_uuid} can-delete={isNotChanged}></c-bulk-opportunity-row>
+                        </div>
+                    </template>
+                </div>
+            </lightning-card>
+        </div>
+
+        <template if:true={hasSiblings}>
+            <h1 if:false={isParent}>Siblings:</h1>
+            <h1 if:true={isParent}>Children:</h1>
+            <template for:each={siblings} for:item="r">
+                <lightning-card key={r.Id} class="slds-card_boundary slds-m-vertical_small">
+                    <h2 class="slds-text-heading_small" slot="title">
+                        <lightning-icon icon-name={r.iconname} size="x-small" class="slds-m-right_small" data-rid={r.Id} onclick={handleToggle}></lightning-icon>
+                        <a href={r.url} onclick={r.onClick}>{r.title}</a>
+                    </h2>
+                    <div slot="actions">
+                        <lightning-input 
+                            type="checkbox" 
+                            data-rid={r.Id} 
+                            onclick={handleSelect} 
+                            checked={r.isChecked}
+                            title="Select for New Opportunity Creation"></lightning-input>
+                    </div>
+                    <div class={r.detailclass}>
+                        <template for:each={r.opps} for:item="opp">
+                            <div class={opp.class} key={opp.Id}>
+                                <c-bulk-opportunity-row opp={opp} parent-id={_uuid} can-delete={isNotChanged}></c-bulk-opportunity-row>
+                            </div>
+                        </template>
+                    </div>
+                </lightning-card>
+            </template>
+        </template>
+
+        <template if:true={modalOpen}>
+            <c-bulk-opportunity-creation-modal parent-id={_uuid} accounts={selectedAccounts}></c-bulk-opportunity-creation-modal>
+        </template>
+
+    </div>
+
+</template>
+
+//js
+import { wire, api, track } from 'lwc';
+import { getRecord } from 'lightning/uiRecordApi';
+import PubSubElement from 'c/pubSubElement';
+import getHierarchy from '@salesforce/apex/S_BulkOpportunityEditor.getHierarchy';
+import { ChangeDetector } from 'c/utils';
+
+export default class BulkOpportunityEditor extends PubSubElement {
+    @api recordId;
+
+    @track parent;
+    @track record;
+    @track siblings;
+    @track isParent;
+    @track loaded = false;
+    @track selectedRecords = [];
+    @track modalOpen = false;
+
+    ignoredProps = ['class', 'url', 'onClick', 'OpportunityLineItems'];
+
+    connectedCallback() {
+        let self = this;
+        if (self._connected) return;
+
+        self._loadData = self.loadData.bind(self);
+        self._handleOppRowChange = self.handleOppRowChange.bind(self);
+        self._handleCloseModal = self.handleCloseModal.bind(self);
+        self.subscribe(`oppRowChange/${self._uuid}`, self._handleOppRowChange);
+        self.subscribe(`closeModal/${self._uuid}`, self._handleCloseModal);
+
+        self.subscribe(`oppsChanged/${self._uuid}`, self._loadData);
+        self.subscribe('tabRefreshed', self._loadData);
+        self.subscribe('recordIdChanged', (e) => {
+            if (e.payload.currentRecordId == self.recordId) self._loadData();
+        });
+
+        self._connected = true;
+    }
+
+    // detect changes to the number of opps, and automatically refresh
+    @wire(getRecord, { recordId: '$recordId', fields: ['Account.Id', 'Account.of_Opps__c'] })
+    getAccountRecord({ data, error }) {
+        if (data) {
+            this.loadData();
+        }
+    }
+
+    refresh() {
+        let self = this;
+        if(self.isNotChanged || (self.isChanged && confirm('This will cancel all unsaved changes.  Are you sure?'))) {
+            self.loadData();
+        }
+    }
+
+    loadData() {
+        let self = this;
+        if (!self.recordId) return;
+        self.loaded = false;
+        setTimeout(() => {
+            if ('undefined' === typeof self.expandedRecords) self.expandedRecords = [self.recordId];
+            getHierarchy({ accountId: self.recordId })
+                .then((hierarchy) => {
+                    self.isParent = hierarchy.parent && hierarchy.parent.Id == self.recordId;
+                    self.parent = hierarchy.parent;
+                    self.record = hierarchy.self;
+                    if (self.record) {
+                        self.record.isNotParent = self.record.Id != self.parent.Id;
+                        self.recordPrep(self.record).then((r) => (self.record = r));
+                        let opps = hierarchy.oppsByAccountId[self.recordId] || [];
+                        Promise.all(opps.map(self.recordPrep.bind(self))).then((opps) => {
+                            self.record.opps = opps.map((o) => new ChangeDetector(o, self.ignoredProps));
+                        });
+                    }
+                    Promise.all(
+                        (hierarchy.children || [])
+                            .filter((r) => !!r && r.Id != self.recordId)
+                            .map((r) => {
+                                self.recordPrep(r).then((r) => {
+                                    Promise.all(
+                                        (hierarchy.oppsByAccountId[r.Id] || []).map(self.recordPrep.bind(self))
+                                    ).then((opps) => {
+                                        r.opps = opps.map((o) => new ChangeDetector(o, self.ignoredProps));
+                                    });
+                                });
+                                return r;
+                            })
+                    ).then((results) => {
+                        self.siblings = results;
+                        setTimeout(() => self.rerender(), 0);
+                    });
+                })
+                .catch(console.error);
+        });
+    }
+
+    recordPrep(r) {
+        let self = this;
+
+        if (r.OpportunityLineItems && r.OpportunityLineItems.length > 0) {
+            r.OpportunityLineItems.forEach((oli) => {
+                let prodId = oli.Product2Id;
+                Object.keys(oli)
+                    .filter((k) => ['Id', 'Product2Id', 'Product2'].indexOf(k) < 1)
+                    .forEach((k) => {
+                        r[`${prodId}/${k}`] = oli[k];
+                    });
+            });
+        }
+
+        r.navTemplate = {
+            type: 'standard__recordPage',
+            attributes: {
+                recordId: r.Id,
+                actionName: 'view',
+            },
+        };
+
+        r.onClick = function(evt) {
+            evt.preventDefault();
+            self.navigation.navigate(r.navTemplate);
+            return false;
+        };
+
+        r.url = '';
+
+        return new Promise((resolve, reject) => {
+            self.navigation.generateUrl(r.navTemplate).then((u) => {
+                try {
+                    r.url = u;
+                } catch (err) {
+                    console.error(err);
+                }
+                return resolve(r);
+            });
+        });
+    }
+
+    // get all records -- the main one, and the siblings, into one array
+    get allRecords() {
+        let self = this;
+        return [self.record].concat(self.siblings).filter((a) => !!a);
+    }
+
+    get allOpps() {
+        let self = this;
+        // now, combine that into a single array of all opps
+        return self.allRecords
+            .map((a) => a.opps)
+            .reduce((r, o) => r.concat(o), [])
+            .filter((o) => !!o);
+    }
+
+    get changedOpps() {
+        let self = this;
+        return self.allOpps.filter((o) => o._hasChanges);
+    }
+
+    get isChanged() {
+        let self = this;
+        return self.changedOpps.length > 0;
+    }
+
+    get isNotChanged() {
+        return !this.isChanged;
+    }
+
+    get accountSelected() {
+        return this.selectedRecords.length > 0;
+    }
+
+    get noAccountSelected() {
+        return this.selectedRecords.length == 0;
+    }
+
+    get selectedAccounts() {
+        let self = this;
+        return self.allRecords.filter((a) => self.selectedRecords.indexOf(a.Id) > -1);
+    }
+
+    get hasOpps() {
+        return this.allOpps && this.allOpps.length > 0;
+    }
+
+    get hasSiblings() {
+        return this.siblings && this.siblings.length > 0;
+    }
+
+    handleOpenModal() {
+        this.modalOpen = true;
+    }
+
+    handleCloseModal() {
+        this.modalOpen = false;
+    }
+
+    handleOppRowChange(event) {
+        let self = this,
+            payload = event.payload,
+            account = self.recordId == payload.acctId ? self.record : self.siblings.find((a) => a.Id == payload.acctId),
+            opp = account.opps.find((o) => o.Id == payload.oppId),
+            prodId = ((opp.OpportunityLineItems || []).find((oli) => !!oli.Product2Id) || {}).Product2Id,
+            value = payload.value,
+            field = payload.field;
+
+        if (!opp) return console.error('Could not find opp with ids: ', acctId, oppId);
+
+        if (!isNaN(value) || value instanceof Date) value = parseFloat(value);
+        if (isNaN(value)) value = payload.value;
+
+        opp[field] = value;
+
+        /*
+        let oldValue = opp[field];
+        console.log({
+            Id: opp.Id,
+            Field: field,
+            OrigValue: opp._orig[field],
+            Current: value,
+            IsChanged: opp._orig[field] != value,
+            AnyChanges: opp._hasChanges,
+            LastValue: oldValue,
+            Orig_Whole: opp._orig,
+        });
+        */
+
+        if (self.selectedRecords.indexOf(account.Id) > -1) {
+            self.selectedAccounts
+                .filter((a) => a.Id != account.Id) // filter out the source opp account
+                .filter((a) => a.opps && a.opps.length > 0) // filter out accounts with no opps
+                .forEach((a) => {
+                    let oppsWithLis = a.opps.filter((o) => o.OpportunityLineItems && o.OpportunityLineItems.length > 0);
+                    let oppsWithMatchingLis = oppsWithLis.filter(
+                        (o) => o.OpportunityLineItems.filter((oli) => oli.Product2Id == prodId).length > 0
+                    );
+                    if (oppsWithMatchingLis.length < 1) return;
+                    oppsWithMatchingLis.forEach((o) => {
+                        o[field] = value;
+                        if (field.indexOf('/') >= 0) {
+                            o.OpportunityLineItems = o.OpportunityLineItems.map((oli) => {
+                                if (oli.Product2Id != prodId) return oli;
+                                let li = Object.assign({}, oli);
+                                li[field.split('/')[1]] = value;
+                                return li;
+                            });
+                        }
+                        self.publish(`oppSyncChange/${o.Id}`, { field, value });
+                    });
+                    if (self.record.Id == a.Id) self.record = a;
+                    else {
+                        let sIdx = self.siblings.findIndex((s) => s.Id == a.Id);
+                        if (sIdx > -1) {
+                            self.siblings.splice(sIdx, 1, a);
+                        }
+                    }
+                });
+        }
+
+        self.rerender();
+    }
+
+    // reset objects to force re-render
+    rerender() {
+        let self = this;
+        let record = Object.assign({}, self.record);
+        record.isChecked = self.selectedRecords.indexOf(record.Id) > -1;
+        let siblings = [].concat(self.siblings);
+        siblings.concat(record).forEach((r) => {
+            r.expanded = self.expandedRecords.indexOf(r.Id) > -1;
+            r.iconname = r.expanded ? 'utility:chevrondown' : 'utility:chevronright';
+            r.detailclass = r.expanded ? '' : 'slds-hide';
+            r.title = r.Name;
+            r.isChecked = self.selectedRecords.indexOf(r.Id) > -1;
+            if (r.opps && r.opps.length > 0) {
+                let liList = r.opps
+                    .map((opp) => (opp.OpportunityLineItems || []).map((li) => li.Product2.Name))
+                    .reduce((a, o) => a.concat(o), [])
+                    .join(', ');
+                if (liList) r.title += ` (${liList})`;
+                r.opps.forEach((opp) => {
+                    opp.class = 'slds-m-around_medium slds-box slds-box_small ' + (opp._hasChanges ? 'changed' : '');
+                });
+            }
+        });
+        self.record = null;
+        self.siblings = [];
+        self.record = record;
+        self.siblings = siblings;
+        self.loaded = true;
+    }
+
+    handleToggle(evt) {
+        let self = this;
+        let target = evt.target;
+        let dataset = target.dataset;
+        let rid = dataset.rid;
+        let expandedIndex = self.expandedRecords.indexOf(rid);
+        if (expandedIndex < 0) {
+            self.expandedRecords.push(rid);
+        } else {
+            self.expandedRecords.splice(expandedIndex, 1);
+        }
+        self.rerender();
+    }
+
+    handleSelect(evt) {
+        let self = this;
+        let target = evt.target;
+        let dataset = target.dataset;
+        let rid = dataset.rid;
+        let checked = target.checked;
+        let selectedIdx = self.selectedRecords.indexOf(rid);
+        if (checked && selectedIdx < 0) self.selectedRecords.push(rid);
+        if (!checked && selectedIdx > -1) self.selectedRecords.splice(selectedIdx, 1);
+        if (self.record.Id == rid) self.record.isChecked = checked;
+        else self.siblings.find((r) => r.Id == rid).isChecked = checked;
+    }
+
+    handleUnselectAll(evt) {
+        this.selectedRecords = [];
+        this.record.isChecked = false;
+        let siblings = this.siblings.map((r) => {
+            r.isChecked = false;
+            return r;
+        });
+        this.siblings = siblings;
+        this.rerender();
+    }
+
+    handleSelectAll(evt) {
+        this.selectedRecords = this.allRecords.map((a) => a.Id);
+        this.record.isChecked = true;
+        let siblings = this.siblings.map((r) => {
+            r.isChecked = true;
+            return r;
+        });
+        this.siblings = siblings;
+        this.rerender();
+    }
+
+    handleSave(evt) {
+        let self = this;
+        self.changedOpps.forEach((o) => {
+            self.publish(`oppRowSaveChanges/${o.AccountId}:${o.Id}`);
+        });
+        setTimeout(() => {
+            self._loadData();
+        }, 1000);
+    }
+
+    get loadingClass() {
+        let self = this;
+        return self.loaded ? '' : 'loading';
+    }
+
+    get parentTitle() {
+        let self = this;
+        return self.parent ? self.parent.Name : '';
+    }
+}
