@@ -1,0 +1,54 @@
+<template>
+    <lightning-record-edit-form
+        record-id={opp.Id}
+        object-api-name="Opportunity"
+        if:true={opp}>
+        <h1 class="slds-text-title_caps">
+            <a href={opp.url} onclick={opp.onClick} class="slds-float_left">{opp.Name}</a>&nbsp;- {amount}
+            <a onclick={deleteOpp} class="slds-float_right" title="Delete Opportunity" if:true={canDelete}>
+                <lightning-icon icon-name="utility:delete" size="xx-small"></lightning-icon>
+            </a>
+        </h1>
+        <lightning-messages></lightning-messages>
+        <div class="slds-grid slds-wrap">  
+            <div class="slds-col slds-size_4-of-12" if:true={closeDateShown}>
+                <lightning-input-field 
+                    field-name="CloseDate"
+                    data-field="CloseDate"
+                    value={opp.CloseDate}
+                    onchange={handleChange}></lightning-input-field>
+            </div>
+            <div class="slds-col slds-size_4-of-12" if:true={stageNameShown}>
+                <lightning-input-field 
+                    field-name="StageName"
+                    data-field="StageName"
+                    value={opp.StageName}
+                    onchange={handleChange}></lightning-input-field>
+            </div>
+            <div class="slds-col slds-size_4-of-12" if:true={lossReasonShown}>
+                <lightning-input-field 
+                    field-name="Loss_Reason__c"
+                    data-field="Loss_Reason__c"
+                    value={opp.Loss_Reason__c}
+                    onchange={handleChange}></lightning-input-field>
+            </div>           
+            <div class="slds-col slds-size_4-of-12" if:true={relatedInstallCaseShown}>
+                <lightning-input-field
+                    field-name="Related_Installation_Case__c"
+                    data-field="Related_Installation_Case__c"
+                    value={opp.Related_Installation_Case__c}
+                    onchange={handleChange}></lightning-input-field>
+            </div>
+         </div>
+        <!-- Removing because the only fields here (discount/price) are no longer relevant, with the coupons via api -->
+        <!--
+        <ul class="slds-has-dividers_around slds-p-left_medium" if:true={opp.OpportunityLineItems}>
+            <template for:each={products} for:item="li">
+                <li key={li.Id} class="slds-item slds-p-around_x-small">
+                    <c-bulk-opportunity-product-row opp={opp} oppli={li}></c-bulk-opportunity-product-row>
+                </li>
+            </template>
+        </ul>
+        -->
+    </lightning-record-edit-form>
+</template>
