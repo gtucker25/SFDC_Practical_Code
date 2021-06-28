@@ -1,0 +1,135 @@
+//html
+<template>
+    <lightning-record-edit-form
+        record-id={oppli.Id}
+        object-api-name="OpportunityLineItem"
+        if:true={oppli}>
+        <h1>{oppli.Product2.Name} - (Original price: ${totalPrice})</h1>
+        <lightning-messages></lightning-messages>
+        <div class="slds-grid">
+            <div class={colClass} if:true={discountProgramRendered}>
+                <lightning-input-field
+                    field-name="Discount_Program__c"
+                    data-field="Discount_Program__c"
+                    value={oppli.Discount_Program__c}
+                    onchange={handleChange}></lightning-input-field>
+            </div>
+            <div class={colClass} if:true={discountProgramOptionsRendered}>
+                <lightning-input-field
+                    field-name="Discount_Program_Options__c"
+                    data-field="Discount_Program_Options__c"
+                    value={oppli.Discount_Program_Options__c}
+                    onchange={handleChange}></lightning-input-field>
+            </div>
+            <div class={colClass} if:true={unitPriceRendered}>
+                <lightning-input-field
+                    field-name="UnitPrice"
+                    data-field="UnitPrice"
+                    value={oppli.UnitPrice}
+                    onchange={handleChange}></lightning-input-field>
+            </div>
+            <!-- 
+                <template for:each={fields} for:item="field">
+                    <div class={colClass} key={field}>
+                        <lightning-input-field
+                            field-name={field}
+                            data-field={field}
+                            onchange={handleChange}></lightning-input-field>
+                    </div>
+                </template>
+            -->
+        </div>
+    </lightning-record-edit-form>
+    
+</template>
+
+//js
+import { api, track } from 'lwc';
+import PubSubElement from 'c/pubSubElement';
+
+export default class BulkOpportunityProductRow extends PubSubElement {
+    @api opp;
+    @api oppli;
+
+    @track discountProgramRendered = true;
+    @track discountProgramOptionsRendered = true;
+    @track unitPriceRendered = true;
+
+    fields = ['Discount_Program__c', 'Discount_Program_Options__c', 'UnitPrice'];
+    get colClass() {
+        return `slds-col slds-size_1-of-${this.fields.length}`;
+    }
+
+    get totalPrice() {
+        return this.oppli.ListPrice;
+    }
+
+    renderedCallback() {
+        let self = this;
+        if ('function' === typeof super.renderedCallback) super.renderedCallback();
+
+        self._oppli = Object.assign({}, self.oppli);
+
+        if (self._rendered) return true;
+
+        self.subscribe(`oppProductRowSaveChanges/${self.oppli.Id}`, (evt) => {
+            self.template.querySelectorAll('lightning-record-edit-form')[0].submit();
+        });
+
+        self.subscribe(`oppProdSyncChange/${self.opp.Id}/${self.oppli.Product2Id}`, (evt) => {
+            let payload = evt.payload;
+            // to prevent infinite loops, do NOT do this logic if the value is already correct.
+            if (self._oppli[payload.field] == payload.value) return;
+            self.doChange(payload.field, payload.value, false);
+            self.oppli = self._oppli;
+
+            switch (payload.field) {
+                case 'Discount_Program__c':
+                    self.discountProgramRendered = false;
+                    break;
+                case 'Discount_Program_Options__c':
+                    self.discountProgramOptionsRendered = false;
+                    break;
+                case 'UnitPrice':
+                    self.unitPriceRendered = false;
+                    break;
+            }
+            setTimeout(() => {
+                self.discountProgramRendered = true;
+                self.discountProgramOptionsRendered = true;
+                self.unitPriceRendered = true;
+            });
+        });
+
+        self._rendered = true;
+    }
+
+    handleChange(evt) {
+        let self = this,
+            target = evt.target,
+            value = target.value,
+            dataset = target.dataset,
+            field = dataset.field;
+
+        if (!isNaN(value) || value instanceof Date) value = parseFloat(value);
+        if (isNaN(value)) value = target.value;
+
+        self.doChange(field, value, true);
+        if (field == 'UnitPrice') {
+            self._oppli.TotalPrice = value * self._oppli.Quantity;
+            self.doChange('TotalPrice', self._oppli.TotalPrice, true);
+        }
+    }
+
+    doChange(field, value, publish = true) {
+        let self = this;
+        self._oppli[field] = value;
+        if(!publish) return;
+        self.publish(`oppProductRowChange/${self.opp.Id}`, {
+            oppProductId: self._oppli.Id,
+            field,
+            value,
+            oppProduct: self._oppli,
+        });
+    }
+}
