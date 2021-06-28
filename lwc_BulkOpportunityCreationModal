@@ -1,0 +1,224 @@
+//css
+.slds-modal__container {
+    height: 75%;
+}
+.slds-modal__container .slds-modal__content {
+    overflow: initial;
+}
+
+//html
+<template>
+    <section role="dialog" tabindex="-1" aria-labelledby="modal-heading-01" aria-modal="true" aria-describedby="modal-content-id-1" class="slds-modal slds-fade-in-open">
+        <div class="slds-modal__container">
+            <!-- Modal/Popup Box LWC header here -->
+            <header class="slds-modal__header">
+                <button class="slds-button slds-button_icon slds-modal__close slds-button_icon-inverse" title="Close" onclick={closeModal}>
+                    <lightning-icon icon-name="utility:close"
+                        alternative-text="close"
+                        variant="inverse"
+                        size="small" ></lightning-icon>
+                    <span class="slds-assistive-text">Close</span>
+                </button>
+                <h2 id="modal-heading-01" class="slds-text-heading_medium slds-hyphenate">{title}</h2>
+            </header>
+            <!-- Modal/Popup Box LWC body starts here -->
+            <div class="slds-modal__content slds-p-around_medium" id="modal-content-id-1">
+                
+                <div class="slds-m-vertical_small">
+                    {oppWord} will be created for the following:
+                    <ul class="slds-list_dotted">
+                        <template for:each={accounts} for:item="account">
+                            <li key={account.Id} class="slds-item">
+                                <a href={account.url} onclick={account.onClick}>{account.title}</a>
+                            </li>
+                        </template>
+                    </ul>
+                </div>
+
+                <div class="slds-grid slds-gutters slds-wrap slds-m-bottom_xx-large">
+                    <div class="slds-col slds-size_1-of-3">
+                        <lightning-input 
+                            type="date" 
+                            label="Close Date" 
+                            name='CloseDate'
+                            value={defaultCloseDate}
+                            onchange={handleChange}
+                            required></lightning-input>
+                    </div>
+                    <div class="slds-col slds-size_1-of-3">
+                        <lightning-combobox 
+                            label='Stage'
+                            name='StageName'
+                            value={stageNameDefault}
+                            placeholder='Select Stage'
+                            options={stageNameOptions}
+                            onchange={handleChange}
+                            required></lightning-combobox>
+                    </div>
+                    <div class="slds-col slds-size_1-of-3">
+                        <lightning-combobox
+                            label='Product'
+                            name='Product'
+                            value={productDefault}
+                            placeholder='Select a Product'
+                            options={productOptions}
+                            onchange={handleChange}
+                            required></lightning-combobox>
+                    </div>
+                </div>
+
+            </div>
+            <!-- Modal/Popup Box LWC footer starts here -->
+            <footer class="slds-modal__footer">
+                <button class="slds-button slds-button_neutral" onclick={closeModal} title="Cancel" disabled={loading}>Cancel</button>
+                <button class="slds-button slds-button_brand" onclick={doSave} title="OK" disabled={loading}>OK</button>
+            </footer>
+        </div>
+    </section>
+    <div class="slds-backdrop slds-backdrop_open"></div>    
+</template>
+
+//js
+import { api, track, wire } from 'lwc';
+import PubSubElement from 'c/pubSubElement';
+import { getObjectInfo, getPicklistValuesByRecordType } from 'lightning/uiObjectInfoApi';
+import OPPORTUNITY_OBJECT from '@salesforce/schema/Opportunity';
+import doQuery from '@salesforce/apex/S_Elevated.doQuery';
+import createOpps from '@salesforce/apex/S_BulkOpportunityEditor.createOpps';
+import { ShowToastEvent } from 'lightning/platformShowToastEvent';
+
+export default class BulkOpportunityCreationModal extends PubSubElement {
+    @api parentId;
+    @api accounts = [];
+
+    @track defaultCloseDate;
+    @track _objectInfo;
+    @track _defaultRecordTypeId;
+    @track _picklistValues;
+    @track _productData;
+    @track loading = true;
+
+    opp = {
+        CloseDate: null,
+        StageName: 'New',
+        Product: null,
+    };
+
+    connectedCallback() {
+        if ('function' === typeof super.connectedCallback) super.connectedCallback();
+        let self = this;
+        self.utils.loader.moment.then((m) => {
+            self.moment = m;
+            self.defaultCloseDate = moment()
+                .add(30, 'd')
+                .format('YYYY-MM-DD');
+            self.opp.CloseDate = self.defaultCloseDate;
+            self.loading = false;
+        });
+        doQuery({
+            soql:
+                'SELECT \
+                        Id, Product2Id, Product2.Name, UnitPrice, Pricebook2Id \
+                        FROM PricebookEntry \
+                        WHERE IsActive=true AND Pricebook2.IsStandard=true\
+                ',
+        })
+            .then((result) => {
+                self._productData = result;
+            })
+            .catch(console.error);
+    }
+
+    @wire(getObjectInfo, { objectApiName: OPPORTUNITY_OBJECT })
+    objectInfo({ error, data }) {
+        if (data) {
+            this._objectInfo = data;
+            this._defaultRecordTypeId = this._objectInfo.defaultRecordTypeId;
+        } else if (error) {
+            console.error(error);
+        }
+    }
+
+    @wire(getPicklistValuesByRecordType, { recordTypeId: '$_defaultRecordTypeId', objectApiName: OPPORTUNITY_OBJECT })
+    stagePicklistValues({ error, data }) {
+        if (data) {
+            this._picklistValues = data.picklistFieldValues;
+        } else if (error) {
+            console.error(error);
+        }
+    }
+
+    get stageNameDefault() {
+        let self = this;
+        if (!self._picklistValues || !self._picklistValues.StageName) return '';
+        return self._picklistValues.StageName.defaultValue || 'New';
+    }
+
+    get stageNameOptions() {
+        let self = this;
+        if (!self._picklistValues || !self._picklistValues.StageName) return [];
+        return self._picklistValues.StageName.values.map((o) => ({ label: o.label, value: o.value }));
+    }
+
+    get productDefault() {
+        let self = this;
+        if (!self._productData) return '';
+        let tsd = self._productData.filter((p) => p.Product2.Name == 'Tobacco Scan Data');
+        let result = tsd && tsd.length == 1 ? tsd[0].Id : '';
+        if (self.opp.Product == null) self.opp.Product = result;
+        return result;
+    }
+
+    get productOptions() {
+        let self = this;
+        if (!self._productData) return '';
+        return self._productData.map((p) => ({ label: p.Product2.Name, value: p.Id }));
+    }
+
+    get oppWord() {
+        return this.accounts.length > 1 ? 'Opportunities' : 'Opportunity';
+    }
+
+    get title() {
+        return `Create ${this.accounts.length} ${this.oppWord}`;
+    }
+
+    handleChange(evt) {
+        let self = this,
+            target = evt.target,
+            fname = target.name,
+            val = target.value;
+        self.opp[fname] = val;
+        console.log(JSON.parse(JSON.stringify(self.opp)));
+    }
+
+    closeModal() {
+        this.publish(`closeModal/${this.parentId}`);
+    }
+
+    doSave() {
+        let self = this,
+            params = {
+                accountIds: self.accounts.map(a => a.Id),
+                closeDate: self.opp.CloseDate,
+                stageName: self.opp.StageName,
+                pricebookEntryId: self.opp.Product
+            };
+        self.loading = true;
+        createOpps(params).then(() => {
+            self.publish(`oppsChanged/${this.parentId}`);
+            self.closeModal();
+            self.loading = false;
+        }).catch(err => {
+            let msg = err.body.message;
+            const event = new ShowToastEvent({
+                title: 'Error',
+                message: msg,
+                variant: 'error',
+                mode: 'dismissable'
+            });
+            this.dispatchEvent(event);
+            console.error(err);
+        });
+    }
+}
