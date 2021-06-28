@@ -1,1 +1,193 @@
+public with sharing class S_BulkOpportunityEditor {
+    @AuraEnabled
+    public static Hierarchy getHierarchy(Id accountId) {
+        Hierarchy result = new Hierarchy();
+        Set<Id> allIds = new Set<Id>{ accountId };
+        result.self = [
+            SELECT
+                Id,
+                Name,
+                Store_Chain_Id__c,
+                Store__c,
+                TDLinx_Code__c,
+                Lifecycle_Stage__c,
+                ParentId,
+                Parent.Name,
+                Parent.Store_Chain_Id__c,
+                Parent.Store__c,
+                Parent.TDLinx_Code__c,
+                Parent.Lifecycle_Stage__c
+            FROM Account
+            WHERE Id = :accountId
+        ];
+        if (result.self.ParentId != null) {
+            allIds.add(result.self.ParentId);
+            result.parent = result.self.parent;
+        } else {
+            result.parent = result.self;
+            result.self = null;
+        }
 
+        result.children = [
+            SELECT Id, Name, Store_Chain_Id__c, Store__c, TDLinx_Code__c, ParentId, Lifecycle_Stage__c
+            FROM Account
+            WHERE ParentId = :result.parent.Id
+        ];
+        allIds.addAll((new Map<Id, Account>(result.children)).keySet());
+
+        result.oppsByAccountId = new Map<Id, List<Opportunity>>();
+        for (Opportunity o : [
+            SELECT
+                Id,
+                Name,
+                AccountId,
+                Amount,
+                StageName,
+                CloseDate,
+                Loss_Reason__c,               
+                Related_Installation_Case__c,
+                IsClosed,
+                IsWon,
+                (
+                    SELECT
+                        Description,
+                        Product2Id,
+                        Product2.Name,
+                        ProductCode,
+                        Quantity,
+                        UnitPrice,
+                        Subtotal,
+                        TotalPrice,
+                        ListPrice,
+                        Discount,
+                        Discount_Program__c,
+                        Discount_Program_Options__c
+                    FROM OpportunityLineItems
+                )
+            FROM Opportunity
+            WHERE AccountId IN :allIds AND (IsClosed = false OR IsWon = true) AND RecordType.DeveloperName = 'C_Store'
+        ]) {
+            List<Opportunity> acctOpps;
+            acctOpps = result.oppsByAccountId.get(o.AccountId);
+
+            if (acctOpps == null)
+                acctOpps = new List<Opportunity>();
+            acctOpps.add(o);
+
+            result.oppsByAccountId.put(o.AccountId, acctOpps);
+        }
+        System.debug(JSON.serializePretty(result));
+        return result;
+    }
+
+    @AuraEnabled
+    public static void deleteOpp(Id oppId) {
+        if (oppId == null || !oppId.getSobjectType().getDescribe().getName().equalsIgnoreCase('opportunity'))
+            throw new App.AppException('Invalid opportunity Id');
+        delete new Opportunity(Id = oppId);
+    }
+
+    @AuraEnabled
+    public static void createOpps(List<String> accountIds, Date closeDate, String stageName, Id pricebookEntryId) {
+        System.debug(accountIds);
+        System.debug(closeDate);
+        System.debug(stageName);
+        System.debug(pricebookEntryId);
+        Set<Id> acctIds = new Set<Id>();
+        for (String aid : accountIds) {
+            acctIds.add((Id) aid);
+        }
+        System.debug(acctIds);
+        if (acctIds.size() < 1)
+            throw new App.AppException('You must supply at least one account Id');
+        if (closeDate == null || closeDate < Date.today())
+            throw new App.AppException('You must supply a close date in the future');
+        if (String.isBlank(stageName))
+            throw new App.AppException('You must supply a valid Stage');
+        if (
+            pricebookEntryId == null ||
+            !pricebookEntryId.getSobjectType().getDescribe().getName().equalsIgnoreCase('pricebookentry')
+        )
+            throw new App.AppException('You must provide a valid PricebookEntry Id');
+
+        Map<Id, Account> accountMap = new Map<Id, Account>([SELECT Id, Name FROM Account WHERE Id IN :acctIds]);
+        PricebookEntry pbe = [
+            SELECT Id, Product2Id, Product2.Name, UnitPrice
+            FROM PricebookEntry
+            WHERE Id = :pricebookEntryId
+        ];
+        if (pbe == null)
+            throw new App.AppException('Could not find Pricebook Entry: ' + pricebookEntryId);
+        if (pbe.Product2 == null)
+            throw new App.AppException('Could not find Product: ' + pbe.Product2Id);
+
+        List<OpportunityLineItem> existingOppLis = [
+            SELECT Id, PricebookEntryId, Opportunity.AccountId
+            FROM OpportunityLineItem
+            WHERE
+                Opportunity.AccountId IN :acctIds
+                AND PricebookEntryId = :pricebookEntryId
+                AND (Opportunity.IsClosed = false
+                OR Opportunity.IsWon = true)
+        ];
+
+        List<Opportunity> oppsToCreate = new List<Opportunity>();
+        for (Id aid : acctIds) {
+            if (aid == null)
+                continue;
+            Boolean existingOpp = false;
+            for (OpportunityLineItem oli : existingOppLis) {
+                if (oli.Opportunity.AccountId == aid) {
+                    existingOpp = true;
+                    break;
+                }
+            }
+            if (!existingOpp) {
+                Account a = accountMap.get(aid);
+                if (a == null)
+                    throw new App.AppException('Could not find Account: ' + aid);
+                System.debug(JSON.serializePretty(new Map<String, Object>{ 'account' => a, 'pbe' => pbe }));
+                oppsToCreate.add(
+                    new Opportunity(
+                        AccountId = aid,
+                        Name = a.Name + ' ' + pbe.Product2.Name,
+                        StageName = stageName,
+                        CloseDate = closeDate
+                    )
+                );
+            }
+        }
+        if (oppsToCreate.size() > 0) {
+            System.debug(JSON.serializePretty(Database.insert(oppsToCreate, false)));
+            List<OpportunityLineItem> olisToCreate = new List<OpportunityLineItem>();
+            for (Opportunity opp : oppsToCreate) {
+                if (opp.Id == null)
+                    continue;
+                olisToCreate.add(
+                    new OpportunityLineItem(
+                        OpportunityId = opp.Id,
+                        PricebookEntryId = pbe.Id,
+                        Quantity = 1,
+                        TotalPrice = pbe.UnitPrice,
+                        Discount_Program__c = 'No Discount',
+                        Discount_Program_Options__c = 'No Discount'
+                    )
+                );
+            }
+            if (olisToCreate.size() > 0) {
+                insert olisToCreate;
+            }
+        }
+    }
+
+    public class Hierarchy {
+        @AuraEnabled
+        public Account parent;
+        @AuraEnabled
+        public Account self;
+        @AuraEnabled
+        public List<Account> children;
+        @AuraEnabled
+        public Map<Id, List<Opportunity>> oppsByAccountId;
+    }
+}
