@@ -1,0 +1,76 @@
+//html
+
+<template>
+  <template for:each={relatedRecords} for:item="relatedRecord">
+      <c-record-detail
+        api-name={targetApiName}
+        record-id={relatedRecord.Id}
+        record={relatedRecord}
+        key={relatedRecord.Id}
+        layout-type={layoutType}
+        columns={columns}
+        density={density}
+        mode={mode}
+      ></c-record-detail>
+  </template>
+</template>
+
+//js
+
+import { api, track } from "lwc";
+import doQuery from "@salesforce/apex/S_Elevated.doQuery";
+import PubSubElement from "c/pubSubElement";
+
+export default class RelatedRecordsContainer extends PubSubElement {
+  @api recordId;
+  @api myApiName;
+  @api targetApiName;
+  @api referenceField;
+  @api layoutType;
+  @api columns;
+  @api density;
+  @api mode;
+  @track relatedRecords = [];
+
+  connectedCallback() {
+    let self = this;
+      doQuery({
+        soql: `SELECT Id, RecordTypeId, RecordType.Name, RecordType.DeveloperName FROM ${self.targetApiName} WHERE ${self.referenceField} = '${self.recordId}'`
+      })
+      .then((objectResults) => {
+        Promise.all(
+          objectResults.map((o) => {
+            o.navTemplate = {
+              type: "standard__recordPage",
+              attributes: {
+                recordId: o.Id,
+                actionName: "view"
+              }
+            };
+
+            o.onClick = function (evt) {
+              evt.preventDefault();
+              self.navigation.navigate(o.navTemplate);
+              return false;
+            };
+
+            o.url = "";
+
+            return new Promise((resolve, reject) => {
+              self.navigation.generateUrl(o.navTemplate).then((u) => {
+                try {
+                  o.url = u;
+                } catch (err) {
+                  console.error(err);
+                }
+                return resolve(o);
+              });
+            });
+          })
+        ).then(results => {
+          self.relatedRecords = results;
+        });
+      })
+      .catch(console.error);
+  }
+}
