@@ -1,0 +1,143 @@
+//js
+
+import { api } from 'lwc';
+import BaseElement from 'c/baseElement';
+import { SafeObject } from 'c/utils';
+
+import {
+    createMessageContext,
+    releaseMessageContext,
+    subscribe,
+    unsubscribe,
+    publish,
+    APPLICATION_SCOPE,
+} from 'lightning/messageService';
+
+import DefaultMC from '@salesforce/messageChannel/Default__c';
+
+export default class PubSubElement extends BaseElement {
+    @api parent;
+
+    componentName = 'PubSubElement';
+    context = null;
+    defaultSub = null;
+    messageQueue = [];
+    subscriptions = new SafeObject();
+
+    renderedCallback() {
+        let self = this;
+        if ('function' === typeof super.renderedCallback) super.renderedCallback();
+
+        if (self._isRendered) return;
+
+        if (self.defaultSub === null) {
+            self.context = createMessageContext();
+            self._handleMessage = self.handleMessage.bind(self);
+            self.defaultSub = subscribe(self.context, DefaultMC, self._handleMessage, {
+                scope: APPLICATION_SCOPE,
+            });
+            if (self.parent) {
+                try {
+                    self.parent.childIsReady();
+                } catch (err) {
+                    console.error(err);
+                }
+            }
+        }
+
+        self._isRendered = true;
+    }
+
+    disconnectedCallback() {
+        if ('function' === typeof super.disconnectedCallback) super.disconnectedCallback();
+        this.subscriptions.clear();
+        unsubscribe(this.defaultSub);
+        releaseMessageContext(this.context);
+    }
+
+    publish(key, payload) {
+        let self = this;
+        const message = {
+            key: key,
+            payload: payload,
+            meta: {
+                sourceComponent: {
+                    name: self.componentName,
+                    globalId: self._uuid,
+                },
+                messageDate: new Date(),
+            },
+        };
+
+        self.messageQueue.push(message);
+        tryToPublish(10);
+
+        function tryToPublish(tries = null) {
+            if (self.messageQueue.length < 1) return;
+            let msg = self.messageQueue.shift();
+            try {
+                publish(self.context, DefaultMC, msg);
+                // if we reach this statement, the publish succeeded!  yay!  let's continue through
+                // the messageQueue, if there are any remaining messages, and publish them all out
+                if (self.messageQueue.length > 0) setTimeout(tryToPublish, 1);
+            } catch (err) {
+                console.error(err.message);
+                // if we run into a publishing error, add the message back to the queue, and then
+                // try again after 1 second.
+                self.messageQueue.unshift(msg);
+                if (!isNaN(tries) && --tries > 0) setTimeout(() => tryToPublish(tries), 1000);
+            }
+        }
+    }
+
+    subscribe(key, callback, filters = ['_self']) {
+        if ('string' !== typeof key) throw new Error('You must provide a key string');
+        if ('function' !== typeof callback) throw new Error('You must provide a callback function');
+        this.subscriptions.set(key, { key, callback, filters });
+    }
+
+    unsubscribe(key) {
+        this.subscriptions.remove(key);
+    }
+
+    handleMessage(message) {
+        let self = this;
+        let msg = JSON.parse(JSON.stringify(message));
+
+        // see if we have a subscription for this key
+        let sub = self.subscriptions[msg.key];
+        if (!sub) return;
+
+        // ensure our callback function is a valid function
+        if ('function' !== typeof sub.callback)
+            throw new Error('Subscription created without a valid callback function');
+
+        // assume that we're NOT filtering this message out
+        let isFiltered = false;
+        // now, loop through any/all filter functions (_self filter provided here)
+        if (!(sub.filters instanceof Array)) sub.filters = [sub.filters];
+        if (sub.filters instanceof Array && sub.filters.length > 0) {
+            isFiltered = sub.filters.reduce((result, filter) => {
+                if (result || filter === null || 'undefined' === typeof filter) return result;
+                if ('string' === typeof filter && filter === '_self') {
+                    filter = (m) => {
+                        return m && m.meta && m.meta.sourceComponent && m.meta.sourceComponent.globalId == self._uuid;
+                    };
+                }
+                if ('function' !== typeof filter) throw new Error('Invalid filter function: ' + filter.toString());
+                return filter(msg);
+            }, false);
+        }
+        // if any of our filters resulted in a true, then let's filter this message out and just return now.
+        if (isFiltered) return;
+
+        // since none of our filters kicked the message out, let's go ahead and call that callback
+        setTimeout(() => {
+            try {
+                sub.callback(msg);
+            } catch (err) {
+                console.error(err);
+            }
+        }, 1);
+    }
+}
