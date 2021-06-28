@@ -1,0 +1,19 @@
+private static testMethod void testWhatIdValidator() {
+        String uniqueUserName = 'standarduser' +Datetime.now().getTime() + '@skupos.com.testing';
+        Profile p = [SELECT id FROM Profile WHERE Name='CSR'];
+        User u = new User(Alias='standt',Email ='standarduser@skupos.com.testing',
+                        EmailEncodingKey='UTF-8',LastName='Testing', LanguageLocaleKey='en_US',
+                        LocaleSidKey='en_US', ProfileId=p.Id, TimeZoneSidKey='America/Los_Angeles',
+                        UserName=uniqueUserName);
+        System.runAs(u){
+            try{
+                Task T= new Task(Subject='testxyz');
+                Insert T;
+            }
+            catch(Exception e)
+            {
+                Boolean expectedExceptionThrown = e.getMessage().contains('You must relate a Case or an Account to your Log A Call record.');
+                System.assertEquals(expectedExceptionThrown, true);
+            }
+        }        
+    }
