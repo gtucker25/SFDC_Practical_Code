@@ -1,0 +1,13 @@
+// This was written to prevent a managed package from side stepping validation rules
+private void whatIdValidator(List<Task> scope) {
+        String CasePrefix = Case.getSObjectType().getDescribe().getKeyPrefix();
+        String AccountPrefix = Account.getSObjectType().getDescribe().getKeyPrefix();
+        Profile P = [Select Name from Profile WHERE Id =:UserInfo.getProfileId()];
+        for (Task t : scope) {
+            String WhatIdString = (String)t.WhatId;
+            If((WhatIdString==null||WhatIdString.containsNone(CasePrefix)||WhatIdString.ContainsNone(AccountPrefix)) && 
+            (P.Name == 'CSR' || P.Name == 'FWF' || P.Name == 'CX Leadership')){
+                t.addError('You must relate a Case or an Account to your Log A Call record.');
+            }
+        }
+    }
