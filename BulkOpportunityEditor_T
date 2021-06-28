@@ -1,0 +1,269 @@
+@isTest
+public with sharing class S_BulkOpportunityEditor_T {
+    static List<Account> accounts;
+    static List<Opportunity> opps;
+    static List<Log__c> logs;
+
+    private static void getData() {
+        accounts = [
+            SELECT
+                Id,
+                Name,
+                Store_Chain_Id__c,
+                Store__c,
+                TDLinx_Code__c,
+                Lifecycle_Stage__c,
+                ParentId,
+                Parent.Name,
+                Parent.Store_Chain_Id__c,
+                Parent.Store__c,
+                Parent.TDLinx_Code__c,
+                Parent.Lifecycle_Stage__c
+            FROM Account
+        ];
+        opps = [
+            SELECT
+                Id,
+                Name,
+                AccountId,
+                Amount,
+                StageName,
+                CloseDate,
+                IsClosed,
+                IsWon,
+                (
+                    SELECT
+                        Description,
+                        Product2Id,
+                        Product2.Name,
+                        ProductCode,
+                        Quantity,
+                        UnitPrice,
+                        Subtotal,
+                        TotalPrice,
+                        ListPrice,
+                        Discount,
+                        Discount_Program__c,
+                        Discount_Program_Options__c
+                    FROM OpportunityLineItems
+                )
+            FROM Opportunity
+        ];
+        logs = [SELECT Id, Name, Title__c, Json_Body__c, Log_Details__c FROM Log__c];
+        System.debug(
+            JSON.serializePretty(
+                new Map<String, Object>{
+                    'accounts:' + accounts.size() => accounts,
+                    'opps:' + opps.size() => opps,
+                    'logs:' + logs.size() => logs
+                }
+            )
+        );
+    }
+
+    private static testMethod void testGetHierarchyNoOpps() {
+        Account parent = T_DataFactory.createAccount(
+            new Map<String, Object>{ 'Lifecycle_Stage__c' => 'N/A - Parent Account' },
+            true
+        );
+        List<Account> children = new List<Account>{
+            T_DataFactory.createAccount(new Map<String, Object>{ 'ParentId' => parent.Id }, false),
+            T_DataFactory.createAccount(new Map<String, Object>{ 'ParentId' => parent.Id }, false)
+        };
+        insert children;
+        getData();
+        System.assertEquals(3, accounts.size());
+        System.assertEquals(0, opps.size());
+        System.assertEquals(0, logs.size());
+
+        Test.startTest();
+
+        S_BulkOpportunityEditor.Hierarchy result = S_BulkOpportunityEditor.getHierarchy(parent.Id);
+        System.debug(JSON.serializePretty(result));
+        System.assertEquals(parent.Id, result.parent.Id);
+        System.assertEquals(null, result.self);
+        System.assertEquals(children.size(), result.children.size());
+        System.assertEquals(0, result.oppsByAccountId.size());
+
+        result = S_BulkOpportunityEditor.getHierarchy(children[0].Id);
+        System.assertEquals(parent.Id, result.parent.Id);
+        System.assertEquals(children[0].Id, result.self.Id);
+        System.assertEquals(children.size(), result.children.size());
+        System.assertEquals(0, result.oppsByAccountId.size());
+
+        Test.stopTest();
+    }
+
+    private static testMethod void testGetHierarchyWithOpps() {
+        Account parent = T_DataFactory.createAccount(
+            new Map<String, Object>{ 'Lifecycle_Stage__c' => 'N/A - Parent Account' },
+            true
+        );
+        List<Account> children = new List<Account>{
+            T_DataFactory.createAccount(new Map<String, Object>{ 'ParentId' => parent.Id }, false),
+            T_DataFactory.createAccount(new Map<String, Object>{ 'ParentId' => parent.Id }, false)
+        };
+        insert children;
+
+        T_DataFactory.createPricebook2(null, true);
+        List<Opportunity> childOpps = new List<Opportunity>();
+        for(Account a: children) {
+            childOpps.add(T_DataFactory.createOpportunity(new Map<String, Object>{ 'AccountId' => a.Id }, false));
+        }
+        insert childOpps;
+        PricebookEntry pbe = [SELECT Id, Product2Id, Product2.Name, UnitPrice, Pricebook2Id, IsActive FROM PricebookEntry WHERE Product2.Name='Tobacco Scan Data'];
+        List<OpportunityLineItem> childOlis = new List<OpportunityLineItem>();
+        for(Opportunity o: childOpps) {
+            childOlis.add(new OpportunityLineItem(
+                OpportunityId = o.Id,
+                PricebookEntryId = pbe.Id,
+                Quantity = 1,
+                UnitPrice = pbe.UnitPrice
+            ));
+        }
+        insert childOlis;
+
+        getData();
+        System.assertEquals(3, accounts.size());
+        System.assertEquals(2, opps.size());
+        System.assertEquals(0, logs.size());
+
+        Test.startTest();
+
+        S_BulkOpportunityEditor.Hierarchy result = S_BulkOpportunityEditor.getHierarchy(parent.Id);
+        System.debug(JSON.serializePretty(result));
+        System.assertEquals(parent.Id, result.parent.Id);
+        System.assertEquals(null, result.self);
+        System.assertEquals(children.size(), result.children.size());
+        System.assertEquals(2, result.oppsByAccountId.size());
+
+        result = S_BulkOpportunityEditor.getHierarchy(children[0].Id);
+        System.assertEquals(parent.Id, result.parent.Id);
+        System.assertEquals(children[0].Id, result.self.Id);
+        System.assertEquals(children.size(), result.children.size());
+        System.assertEquals(2, result.oppsByAccountId.size());
+
+        Test.stopTest();
+    }
+
+    private static testMethod void testDeleteOpp() {
+        Account parent = T_DataFactory.createAccount(
+            new Map<String, Object>{ 'Lifecycle_Stage__c' => 'N/A - Parent Account' },
+            true
+        );
+        List<Account> children = new List<Account>{
+            T_DataFactory.createAccount(new Map<String, Object>{ 'ParentId' => parent.Id }, false)
+        };
+        insert children;
+
+        T_DataFactory.createPricebook2(null, true);
+        List<Opportunity> childOpps = new List<Opportunity>();
+        for(Account a: children) {
+            childOpps.add(T_DataFactory.createOpportunity(new Map<String, Object>{ 'AccountId' => a.Id }, false));
+        }
+        insert childOpps;
+        PricebookEntry pbe = [SELECT Id, Product2Id, Product2.Name, UnitPrice, Pricebook2Id, IsActive FROM PricebookEntry WHERE Product2.Name='Tobacco Scan Data'];
+        List<OpportunityLineItem> childOlis = new List<OpportunityLineItem>();
+        for(Opportunity o: childOpps) {
+            childOlis.add(new OpportunityLineItem(
+                OpportunityId = o.Id,
+                PricebookEntryId = pbe.Id,
+                Quantity = 1,
+                UnitPrice = pbe.UnitPrice
+            ));
+        }
+        insert childOlis;
+
+        getData();
+        System.assertEquals(2, accounts.size());
+        System.assertEquals(1, opps.size());
+        System.assertEquals(0, logs.size());
+
+        Test.startTest();
+
+        S_BulkOpportunityEditor.Hierarchy result = S_BulkOpportunityEditor.getHierarchy(parent.Id);
+        System.debug(JSON.serializePretty(result));
+        System.assertEquals(parent.Id, result.parent.Id);
+        System.assertEquals(null, result.self);
+        System.assertEquals(children.size(), result.children.size());
+        System.assertEquals(1, result.oppsByAccountId.size());
+
+        Id oppId = opps[0].Id;
+
+        S_BulkOpportunityEditor.deleteOpp(oppId);
+
+        getData();
+        System.assertEquals(2, accounts.size());
+        System.assertEquals(0, opps.size());
+        System.assertEquals(0, logs.size());
+
+        try{
+            S_BulkOpportunityEditor.deleteOpp(null);
+            System.assert(false, 'Should have failed due to invalid id');
+        } catch(Exception e) {
+            System.debug(e.getMessage());
+            System.assert(e.getMessage().containsIgnoreCase('Invalid opportunity Id'));
+        }
+
+        try{
+            S_BulkOpportunityEditor.deleteOpp('006000000000000000');
+            System.assert(false, 'Should have failed due to invalid id');
+        } catch(Exception e) {
+            System.debug(e.getMessage());
+            System.assert(e.getMessage().containsIgnoreCase('Invalid'));
+        }
+
+        try{
+            S_BulkOpportunityEditor.deleteOpp(oppId);
+            System.assert(false, 'Should have failed due to missing record');
+        } catch(Exception e) {
+            System.debug(e.getMessage());
+            System.assert(e.getMessage().containsIgnoreCase('delete failed'));
+        }
+
+        Test.stopTest();
+    }
+
+    private static testMethod void testCreateOpps() {
+        Account parent = T_DataFactory.createAccount(
+            new Map<String, Object>{ 'Lifecycle_Stage__c' => 'N/A - Parent Account' },
+            true
+        );
+        List<Account> children = new List<Account>{
+            T_DataFactory.createAccount(new Map<String, Object>{ 'ParentId' => parent.Id }, false),
+            T_DataFactory.createAccount(new Map<String, Object>{ 'ParentId' => parent.Id }, false)
+        };
+        insert children;
+
+        T_DataFactory.createPricebook2(null, true);
+        PricebookEntry pbe = [SELECT Id, Product2Id, Product2.Name, UnitPrice, Pricebook2Id, IsActive FROM PricebookEntry WHERE Product2.Name='Tobacco Scan Data'];
+
+        getData();
+        System.assertEquals(3, accounts.size());
+        System.assertEquals(0, opps.size());
+        System.assertEquals(0, logs.size());
+
+        Test.startTest();
+
+        S_BulkOpportunityEditor.createOpps(
+            new List<String>{ children[0].Id, children[1].Id },
+            Date.today().addDays(30),
+            'New',
+            pbe.Id
+        );
+
+        getData();
+        System.assertEquals(3, accounts.size());
+        System.assertEquals(2, opps.size());
+        System.assertEquals(0, logs.size());
+
+        S_BulkOpportunityEditor.Hierarchy result = S_BulkOpportunityEditor.getHierarchy(parent.Id);
+        System.debug(JSON.serializePretty(result));
+        System.assertEquals(parent.Id, result.parent.Id);
+        System.assertEquals(null, result.self);
+        System.assertEquals(children.size(), result.children.size());
+        System.assertEquals(2, result.oppsByAccountId.size());
+
+        Test.stopTest();
+    }
+}
