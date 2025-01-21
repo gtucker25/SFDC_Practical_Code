@@ -1,0 +1,108 @@
+public with sharing class HandleDisbursementActions_Flow {
+    /*Invocable Method to be called from the Flow. This Method uses a wrapper class to pass in multiple variables and therefore has a Disbursement Wrapper List as a parameter.
+    Invocable Methods can only receive lists as parameters so we will declare separate variables using our wrapper class.*/
+        
+    @InvocableMethod (label='Handle PAC Gift and CDG Updates' description='Calculates Amounts and fees for Disbursement Groups and adds the proper Amounts and Fees for the groups')
+    public static void handleDisbursementActions (List<DisbursementWrapper> disbursementVariables) {
+        
+        //Since there is only one DisbursementWrapper but we passed in a list, access and assign the first one so we can assign our input/invocable variables.
+        DisbursementWrapper disbursementWrapper = disbursementVariables[0];
+        
+        //Create Variables to calculate Amounts and fees for Disbursement Groups as well as a Group Counter to be used in out CheckNumber method.
+        Decimal amountForGroup = 0;
+        Decimal feesForGroup = 0;
+        Integer groupCounter = 1;
+        Decimal disbursementAmountTotal=0;
+        Decimal disbursementFeesTotal=0;
+        
+        //Create the List of CDGs and PAC Gifts using the disbursementWrapper and the appropriate variables to loop through for calculation and later update.
+        List<Candidate_Disbursement_Group__c> disbursementGroupsForUpdate = disbursementWrapper.disbursementGroups;
+        List<Pac_Site_Data__c> pacGiftsForUpdate = disbursementWrapper.pacGifts;
+        Disbursement__c disbursementForUpdate = disbursementWrapper.disbursement;
+        
+        //Null check needed for summing these fields later
+        disbursementForUpdate.Amount__c = disbursementForUpdate.Amount__c == null ? 0 : disbursementForUpdate.Amount__c;
+        disbursementForUpdate.Fees__c = disbursementForUpdate.Fees__c == null ? 0 : disbursementForUpdate.Fees__c;
+        
+        for(Candidate_Disbursement_Group__c cdg : disbursementGroupsForUpdate){
+            //For each Disbursement Group, loop through all PAC Site Data related to it and add Amount and Fees to the appropriate variables
+            //Loop Through all PAC Gifts and check to see if they are related to the current CDG in the outer loop. If so, add the Amount and Fees to the appropriate variables.
+            //Clear out the Amount and Fees for this next Group
+            amountForGroup = 0;
+            feesForGroup = 0;
+            for(Pac_Site_Data__c gift : pacGiftsForUpdate){
+                if(gift.Candidate_Disbursement_Group__c == cdg.Id){
+                    amountForGroup += gift.Amount__c;
+                    feesForGroup += gift.Fee__c;
+                    gift.Disbursement_Date__c = Date.today();
+                    //Fire our generateCheckNumber Method to calculate the check number and update the CDG Check Number field.
+                    //This needs to be in the inner loop so we can stamp the check number on the PAC Gift as well
+                    gift.Check_Number__c=generateCheckNumber(groupCounter);
+                }
+            }
+            
+            //Assign the Amount, Fees, and Check Number Values for the current Disbursement Group of the outer Loop
+            cdg.Total_Amount__c=amountForGroup;
+            cdg.Total_Fees__c=feesForGroup;
+            
+            cdg.Check_Number__c=generateCheckNumber(groupCounter);
+            
+            //Add the Amount and Fees for this group to the overall Disbursement Total Amount and Fees
+            disbursementForUpdate.Amount__c+=amountForGroup;
+            disbursementForUpdate.Fees__c+=feesForGroup;
+            groupCounter++;
+        }
+        
+        //Since we can only return one list to the flow, let's update the PAC Gift records Disbursement Date now
+        disbursementForUpdate.Disbursement_Date__c = Date.today();
+        disbursementForUpdate.Disbursement_By__c = UserInfo.getName();
+        update as user pacGiftsForUpdate;
+        update as user disbursementForUpdate;
+        update as user disbursementGroupsForUpdate;
+    }
+    
+    //CheckNumber Method to calculate the check number string for each Group and PAC Gift. This is needed to determine if leading zeros should be applied or not for the Check # convention/standard
+    public static String generateCheckNumber (Integer countOfGroups) {
+        
+        //Declare date variables for later comparison
+        Date currentDate = Date.today();
+        Integer todaysMonth = currentDate.month();
+        Integer todaysYear = currentDate.year();
+        Integer todaysDay = currentDate.day();
+        
+        //Create the formatted version for the concatenated String
+        String formattedYear = String.valueOf(todaysYear);
+        String formattedMonth;
+        String formattedDay;
+        String formattedGroupNumber;
+        String formattedDisbursementGroups = (countOfGroups < 10) ? '-0' + String.valueOf(countOfGroups) : '-' + String.valueOf(countOfGroups);
+        
+        //Determine if leading zeros are needed, if else just leave as is
+        if(todaysMonth<10){
+            formattedMonth = '0'+String.valueOf(todaysMonth);
+        } else {
+            formattedMonth = String.valueOf(todaysMonth);
+        }
+        if(todaysDay<10){
+            formattedDay = '0'+String.valueOf(todaysDay);
+        } else {
+            formattedDay = String.valueOf(todaysDay);
+        }
+        
+        //Concatenate the formatted variables for the standardized check number
+        String checkNumberResult=formattedYear+formattedMonth+formattedday+formattedDisbursementGroups;
+        
+        return checkNumberResult;
+    }
+    
+    //Create an Inner Class with Invocable Variables so we can pass more than one parameter from the flow. We want to pass in 1 disbursement record, a list of CDG records, and a list of PAC Gifts.
+    public class DisbursementWrapper {
+        @InvocableVariable(label='Disbursement Record' description='Single outstanding Disbursement record' required='true')
+        public Disbursement__c disbursement;
+        @InvocableVariable(label='Candidate Disbursement Group Records' description='Yet to be disbursed CDG records related to our Disbursement' required='true')
+        public List<Candidate_Disbursement_Group__c> disbursementGroups;
+        @InvocableVariable(label='PAC Gift Records' description='Yet to be disbursed PAC Gifts with a Disbursement record' required='true')
+        public List<Pac_Site_Data__c> pacGifts;
+        
+    }
+}
