@@ -1,0 +1,97 @@
+@IsTest public with sharing class HandleDisbursementActions_Flow_TEST {
+    @isTest
+    public static void testHandleDisbursementActions() {
+        //Step 1: Create Test Data
+        
+        //Create Disbursement record
+        Disbursement__c testDisbursement = new Disbursement__c();
+        insert testDisbursement;
+        
+        //Create Candidate Disbursement records related to the Test Disbursement;
+        Candidate_Disbursement_Group__c cdg1 = new Candidate_Disbursement_Group__c(Disbursement__c = testDisbursement.Id, Check_Number__c=null, Total_Amount__c = 0, Total_Fees__c = 0);
+        
+        Candidate_Disbursement_Group__c cdg2 = new Candidate_Disbursement_Group__c(Disbursement__c = testDisbursement.Id, Check_Number__c=null, Total_Amount__c = 0, Total_Fees__c = 0);
+        
+        Candidate_Disbursement_Group__c cdg3 = new Candidate_Disbursement_Group__c(Disbursement__c = testDisbursement.Id, Check_Number__c=null, Total_Amount__c = 0, Total_Fees__c = 0);
+        
+        insert new List<Candidate_Disbursement_Group__c>{cdg1, cdg2, cdg3};
+        
+        //Create PAC Gift records related to the Disbursement Groups;
+        Pac_Site_Data__c pacGift1a = new Pac_Site_Data__c(Candidate_Disbursement_Group__c = cdg1.Id, Disbursement__c = testDisbursement.Id, Amount__c = 10, Fee__c = 2, Check_Number__c=null);
+        
+        Pac_Site_Data__c pacGift1b = new Pac_Site_Data__c(Candidate_Disbursement_Group__c = cdg1.Id, Disbursement__c = testDisbursement.Id, Amount__c = 10, Fee__c = 2, Check_Number__c=null);
+        
+        Pac_Site_Data__c pacGift2a = new Pac_Site_Data__c(Candidate_Disbursement_Group__c = cdg2.Id, Disbursement__c = testDisbursement.Id, Amount__c = 15, Fee__c = 3, Check_Number__c=null);
+        
+        Pac_Site_Data__c pacGift2b = new Pac_Site_Data__c(Candidate_Disbursement_Group__c = cdg2.Id, Disbursement__c = testDisbursement.Id, Amount__c = 15, Fee__c = 3, Check_Number__c=null );
+        
+        Pac_Site_Data__c pacGift3a = new Pac_Site_Data__c(Candidate_Disbursement_Group__c = cdg3.Id, Disbursement__c = testDisbursement.Id, Amount__c = 20.5, Fee__c = 3.25, Check_Number__c=null);
+        
+        Pac_Site_Data__c pacGift3b = new Pac_Site_Data__c(Candidate_Disbursement_Group__c = cdg3.Id, Disbursement__c = testDisbursement.Id, Amount__c = 20.5, Fee__c = 3.25, Check_Number__c=null);
+        
+        insert new List<Pac_Site_Data__c>{pacGift1a, pacGift1b, pacGift2a, pacGift2b, pacGift3a, pacGift3b};
+        
+        //Step 2: Create the DisbursementWrapper object to mimic the variables coming from the Flow
+        
+        HandleDisbursementActions_Flow.DisbursementWrapper wrapperTest = new HandleDisbursementActions_Flow.DisbursementWrapper();
+        wrapperTest.disbursement = testDisbursement;
+        wrapperTest.disbursementGroups = new List<Candidate_Disbursement_Group__c>{cdg1, cdg2, cdg3};
+        wrapperTest.pacGifts = new List<Pac_Site_Data__c>{pacGift1a, pacGift1b, pacGift2a, pacGift2b, pacGift3a, pacGift3b};
+        
+        //Step 3: Call the HandleDisbursementActions method
+        
+        Test.startTest();
+        HandleDisbursementActions_Flow.handleDisbursementActions(new List<HandleDisbursementActions_Flow.DisbursementWrapper>{wrapperTest});
+        Test.stopTest();
+        
+        //Step 4: Assert that the data was updated correctly
+        
+        //Verify CDGs were updated correctly
+        List<Candidate_Disbursement_Group__c> updatedCDGs = [SELECT Id, Total_Amount__c, Total_Fees__c, Check_Number__c FROM Candidate_Disbursement_Group__c WHERE Disbursement__c = :testDisbursement.Id];
+        
+        //Verify CDG1 Updates
+        System.assertEquals(20, updatedCDGs[0].Total_Amount__c, 'Total amount for CDG 1 should be 20');
+        System.assertEquals(4, updatedCDGs[0].Total_Fees__c, 'Total fees for CDG 1 should be 4');
+        System.assertNotEquals(null,updatedCDGs[0].Check_Number__c, 'Check number should not be blank');
+        
+        //Verify CDG2 Updates
+        System.assertEquals(30, updatedCDGs[1].Total_Amount__c, 'Total amount for CDG 2 should be 30');
+        System.assertEquals(6, updatedCDGs[1].Total_Fees__c, 'Total fees for CDG 2 should be 6');
+        System.assertNotEquals(null,updatedCDGs[1].Check_Number__c, 'Check number should not be blank');
+        
+        //Verify CDG3 Updates
+        System.assertEquals(41, updatedCDGs[2].Total_Amount__c, 'Total amount for CDG 3 should be 41');
+        System.assertEquals(6.5, updatedCDGs[2].Total_Fees__c, 'Total fees for CDG 3 should be 6.50');
+        System.assertNotEquals(null,updatedCDGs[2].Check_Number__c, 'Check number should not be blank');
+        
+        //Verify PAC Gifts were updated correctly
+        List<Pac_Site_Data__c> updatedGifts = [SELECT Id, Disbursement_Date__c, Check_Number__c FROM Pac_Site_Data__c WHERE Disbursement__c = :testDisbursement.Id];
+        
+        //Verify PAC Gifts 1a and 1b
+        System.assertNotEquals(null, updatedGifts[0].Check_Number__c, 'Check Number should not be null');
+        System.assertEquals(date.today(), updatedGifts[0].Disbursement_Date__c, 'Disbursement Date should be today');
+        System.assertNotEquals(null, updatedGifts[1].Check_Number__c, 'Check Number should not be null');
+        System.assertEquals(Date.today(), updatedGifts[1].Disbursement_Date__c, 'Disbursement Date should be today');
+        
+        //Verify PAC Gifts 2a and 2b
+        System.assertNotEquals(null, updatedGifts[2].Check_Number__c, 'Check Number should not be null');
+        System.assertEquals(Date.today(), updatedGifts[2].Disbursement_Date__c, 'Disbursement Date should be today');
+        System.assertNotEquals(null, updatedGifts[3].Check_Number__c, 'Check Number should not be null');
+        System.assertEquals(Date.today(), updatedGifts[3].Disbursement_Date__c, 'Disbursement Date should be today');
+        
+        //Verify PAC Gifts 3a and 3b
+        System.assertNotEquals(null, updatedGifts[4].Check_Number__c, 'Check Number should not be null');
+        System.assertEquals(Date.today(), updatedGifts[4].Disbursement_Date__c, 'Disbursement Date should be today');
+        System.assertNotEquals(null, updatedGifts[5].Check_Number__c, 'Check Number should not be null');
+        System.assertEquals(Date.today(), updatedGifts[5].Disbursement_Date__c, 'Disbursement Date should be today');
+        
+        //Verify the Disbursement was Updated
+        Disbursement__c updatedDisbursement = [SELECT Id, Disbursement_Date__c, Amount__c, Fees__c, Disbursement_By__c FROM Disbursement__c WHERE Id = :testDisbursement.Id];
+        //Verify that the first Disbursement Date is today;
+        System.assertEquals(Date.today(), updatedDisbursement.Disbursement_Date__c, 'Disbursement Date should be today');
+        System.assertEquals(91, updatedDisbursement.Amount__c, 'Disbursement Amount should be 91');
+        System.assertEquals(16.5, updatedDisbursement.Fees__c, 'Disbursement Fees should be 16.50');
+        System.assertEquals(UserInfo.getName(), updatedDisbursement.Disbursement_By__c, 'Disbursed By should be'+UserInfo.getName());
+        
+    }
+}
