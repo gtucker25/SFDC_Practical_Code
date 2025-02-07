@@ -1,0 +1,38 @@
+//Part of larger Community Records List component
+.content-header {
+    background: #003466;
+}
+.content-body {
+    background: #fff;
+}
+.container {
+    width: 440px;
+    height: 250px;
+    position: relative;
+    margin: 0px;
+    cursor: pointer;
+  }
+  .box {
+    width: 100%;
+    height: 100%;
+    position: absolute;
+    top: 0;
+    left: 0;
+  }
+  
+  .overlay {
+    z-index: 9;
+    opacity:0.7;
+    width: 100%;
+    height: 20%;
+    font-size:x-large;
+    font-weight: 700;
+    padding: 10px;
+    background-color: white;
+  }
+
+  .slds-col .slds-size_1-of-1 .slds-text-heading_small .slds-p-bottom_small .slds-line-clamp_medium{
+    overflow: hidden;
+    white-space: pre-wrap;
+  }
+
