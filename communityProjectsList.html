@@ -1,0 +1,74 @@
+//Part of larger Community Records List component
+<template>
+    <div class="slds-grid slds-wrap slds-gutters content-header">
+
+        <div class="slds-col slds-large-size_2-of-12 slds-small-size_12-of-12 slds-medium-size_1-of-2 slds-p-bottom_medium slds-m-top_x-small">
+            <span class="slds-text-color_inverse"><strong></string>Subcommittee</strong></span>
+            <lightning-combobox name="filter" value={subcommitteId} options={subcommittees}
+                onchange={filterBySubcommittee}  variant="label-hidden"></lightning-combobox>
+        </div>
+        <div class="slds-col slds-large-size_2-of-12 slds-small-size_12-of-12 slds-medium-size_1-of-2 slds-p-bottom_medium slds-m-top_x-small">
+            <span class="slds-text-color_inverse"><strong></string>Search</strong></span>
+            <lightning-input                   
+                    type="search"
+                    data-source="searchInputField"
+                    onchange={handleKeyChange}
+                    value={searchKey}
+                    variant="label-hidden"
+                    placeholder='Search'
+                ></lightning-input> 
+        </div>
+        <div class="slds-col slds-large-size_2-of-12 slds-small-size_12-of-12 slds-medium-size_1-of-2 slds-p-bottom_medium slds-m-top_x-small">
+            <span class="slds-text-color_inverse"><strong></string>Project Type</strong></span>
+            <lightning-combobox name="filterByType" value={projectType} options={typeOptions}
+                onchange={filterByProjectType} variant="label-hidden"></lightning-combobox>
+        </div>
+        <!-- <div class="slds-col slds-large-size_10-of-12 slds-small-size_1-of-1 slds-medium-size_1-of-2"></div>  -->
+        <div class="slds-col slds-large-size_2-of-12 slds-small-size_12-of-12 slds-medium-size_1-of-2 slds-p-bottom_medium slds-m-top_x-small">
+            <span class="slds-text-color_inverse"><strong></string>Sort By</strong></span>
+            <lightning-combobox name="sort" label="Sort By" value={sortValue} placeholder="Sort" options={options}
+                onchange={handleSortChange}  variant="label-hidden"></lightning-combobox>
+        </div>
+    </div>
+
+<div class="slds-grid slds-wrap slds-gutters slds-var-p-top_small slds-var-p-bottom_small content-body" >
+    <template if:true={projects}>
+
+        <template for:each={projects} for:item="project">
+
+            <div class="slds-col slds-small-size_12-of-12 slds-medium-size_1-of-2 slds-large-size_1-of-3 slds-wrap slds-var-p-top_small" key={project.Id}>
+
+        
+                <div class="slds-grid slds-size_3-of-3 slds-var-p-bottom_small slds-wrap slds-align_absolute-center">
+                    <div class="slds-col slds-size_1-of-1 slds-align_absolute-center slds-p-bottom_small">
+                        <div class="container" data-id={project.Id} onclick={handleClick}>
+                            <div class="box overlay slds-truncate">
+                                {project.ProjectName}
+                            </div>
+                            <img src={project.thumbnail}  class="box"/>
+                        </div>
+                    </div>
+                    <div class="slds-col slds-size_1-of-2 slds-text-heading_small slds-p-bottom_small">
+                        Project Start Date
+                    </div>
+                    <div class="slds-col slds-size_1-of-2 slds-text-heading_small slds-p-bottom_small">
+                        Project End Date
+                    </div>
+                    <div class="slds-col slds-size_1-of-2 slds-text-heading_small slds-p-bottom_small">
+                        <lightning-formatted-date-time value={project.ProjectStartDate} year="numeric" month="numeric" day="numeric"></lightning-formatted-date-time>
+                    </div>
+                    <div class="slds-col slds-size_1-of-2 slds-text-heading_small slds-p-bottom_small">
+                        <lightning-formatted-date-time value={project.ProjectEndDate} year="numeric" month="numeric" day="numeric"></lightning-formatted-date-time>
+                    </div>
+                    <div class="slds-col slds-size_1-of-1 slds-text-heading_small slds-p-bottom_none slds-line-clamp_medium">
+                        {project.ProjectSummary}
+                    </div>
+
+                </div>  
+            </div>
+
+        </template>
+    
+    </template>
+</div>
+</template>
