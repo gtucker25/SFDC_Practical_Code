@@ -1,0 +1,16 @@
+<template>
+    <lightning-card title="Volunteer Status">
+        <div class="slds-grid slds-size_full slds-scrollable_x" style="overflow: auto; white-space: nowrap; padding: 0.5rem;">
+        <lightning-progress-indicator current-step={currentStep} type="path">
+            <template for:each={steps} for:item="step">
+                <lightning-progress-step 
+                    key={step.value} 
+                    label={step.label} 
+                    value={step.value} 
+                    class={step.class}>
+                </lightning-progress-step>
+            </template>
+        </lightning-progress-indicator>
+    </div>
+    </lightning-card>
+</template>
