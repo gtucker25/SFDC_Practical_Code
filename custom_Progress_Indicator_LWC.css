@@ -1,0 +1,8 @@
+.completed-step {
+    background-color: #d3d3d3 !important; /* Light gray shading for completed steps */
+}
+
+.current-step {
+    font-weight: bold;
+    border: 2px solid #0070d2; /* Salesforce blue border to highlight current step */
+}
