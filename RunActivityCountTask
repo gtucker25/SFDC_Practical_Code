@@ -1,0 +1,10 @@
+Global with sharing class RunActivityCountTask implements OEETask {
+    public void runTask() {
+        Database.executeBatch(new CountActivitiesBatch('Contact'), 200);
+        Database.executeBatch(new CountActivitiesBatch('Lead'), 200);
+    }
+
+    public String className() {
+        return 'RunActivityCountTask';
+    }
+}
