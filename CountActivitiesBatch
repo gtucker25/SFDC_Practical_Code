@@ -1,0 +1,89 @@
+global class CountActivitiesBatch implements Database.Batchable<SObject>, Database.Stateful {
+
+    global String sObjectType;
+    private List<String> contactErrors = new List<String>();
+    private List<String> leadErrors = new List<String>();
+
+
+    global CountActivitiesBatch(String sObjectType) {
+        this.sObjectType = sObjectType;
+    }
+
+    global Database.QueryLocator start(Database.BatchableContext bc) {
+        if (sObjectType == 'Contact') {
+            return Database.getQueryLocator([
+                SELECT Id, Email 
+                FROM Contact 
+                WHERE csuoee__HR_Employee_Type__c = null 
+                WITH SECURITY_ENFORCED
+            ]);
+        } else if (sObjectType == 'Lead') {
+            return Database.getQueryLocator([
+                SELECT Id, Email, Status 
+                FROM Lead 
+                WHERE Status != 'Not Qualified' 
+                WITH SECURITY_ENFORCED
+            ]);
+        }
+        return Database.getQueryLocator('SELECT Id FROM Contact WHERE Id = null'); // fallback
+    }
+
+    global void execute(Database.BatchableContext bc, List<SObject> scope) {
+        if (scope.isEmpty()){
+            return;
+        } 
+        try{
+            if (sObjectType == 'Contact') {
+                CountActivitiesLogic.updateContactActivities((List<Contact>)scope);
+            } else if (sObjectType == 'Lead') {
+                CountActivitiesLogic.updateLeadActivities((List<Lead>)scope);
+            }
+        }
+        catch(exception e){
+            String errorDetails = 'Error in scope: '+scope+ '\nMessage: '+e.getMessage();
+            if(sObjectType=='Contact'){
+                contactErrors.add(errorDetails);
+            }
+            else if(sObjectType=='Lead'){
+                leadErrors.add(errorDetails);
+            }
+        }
+        
+    }
+    global void finish(Database.BatchableContext bc) {
+        if(contactErrors.isEmpty()&&leadErrors.isEmpty()){
+            //No errors - success email
+            String subject = 'Activity Count Batch Completed';
+            String body = 'The CountActivitiesBatch job has finished successfully for sObjectType: ' + sObjectType + '.';
+        
+            Messaging.SingleEmailMessage email = new Messaging.SingleEmailMessage();
+            email.setToAddresses(new String[] { 'csu_online_it_admin@mail.colostate.edu' });
+            email.setSubject(subject);
+            email.setPlainTextBody(body);
+            Messaging.sendEmail(new Messaging.SingleEmailMessage[] { email });
+        }
+        else{
+            //Errors present - send an error email with details
+            String subject ='Activity Count Batch Completed with Errors';
+            String body = 'The CountActivitiesBatch job finished with errors.\n\n';
+
+            if(!contactErrors.isEmpty()){
+                body+='Contact Errors:\n';
+                    for(String err:contactErrors){
+                        body+='- '+err+'\n';
+                    }
+                }
+            if(!leadErrors.isEmpty()){
+                body+='Lead Errors:\n';
+                    for(String err:leadErrors){
+                        body+='- '+err+'\n';
+                    }
+                }
+                Messaging.SingleEmailMessage errorEmail = new Messaging.SingleEmailMessage();
+                errorEmail.setToAddresses(new String[] { 'csu_online_it_admin@mail.colostate.edu' });
+                errorEmail.setSubject(subject);
+                errorEmail.setPlainTextBody(body.toString());
+                Messaging.sendEmail(new Messaging.SingleEmailMessage[] { errorEmail });       
+            }
+            }
+        }
