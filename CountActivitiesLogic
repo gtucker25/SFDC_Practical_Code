@@ -1,0 +1,131 @@
+public class CountActivitiesLogic {
+
+    public static void updateContactActivities(List<Contact> contactList) {
+        if (contactList.isEmpty()) {
+            return;}
+
+        Set<Id> contactIds = new Set<Id>();
+        Map<Id, String> contactEmailMap = new Map<Id, String>();
+        for (Contact c : contactList) {
+            contactIds.add(c.Id);
+            if (String.isNotBlank(c.Email)) {
+                contactEmailMap.put(c.Id, c.Email.trim().toLowerCase());
+            }
+        }
+
+        Map<Id, Integer> taskCountMap = new Map<Id, Integer>();
+        for (AggregateResult ar : [
+            SELECT WhoId, COUNT(Id) totalCount 
+            FROM Task 
+            WHERE WhoId IN :contactIds AND Status = 'Completed' AND (NOT Subject LIKE 'Incoming') AND (NOT Subject LIKE 'SMS') WITH SECURITY_ENFORCED
+            GROUP BY WhoId
+        ]) {
+            taskCountMap.put((Id) ar.get('WhoId'), (Integer) ar.get('totalCount'));
+        }
+
+        Map<Id, Integer> smsCountMap = new Map<Id, Integer>();
+        for (AggregateResult ar : [
+            SELECT smagicinteract__Contact__c, COUNT(Id) totalCount 
+            FROM smagicinteract__smsMagic__c 
+            WHERE smagicinteract__Contact__c IN :contactIds WITH SECURITY_ENFORCED
+            GROUP BY smagicinteract__Contact__c
+        ]) {
+            smsCountMap.put((Id) ar.get('smagicinteract__Contact__c'), (Integer) ar.get('totalCount'));
+        }
+        
+        List<csuoee__Program_of_Interest__c> contactPOIList = [SELECT Id, csuoee__Contact__c 
+        FROM csuoee__Program_of_Interest__c 
+        WHERE csuoee__Contact__c IN :contactIds];
+
+        Set<Id> contactPOIids= new Set<Id>();
+        Map<Id, Id> poiToContactMap = new Map<Id, Id>();
+        for (csuoee__Program_of_Interest__c p : contactPOIList) {
+            contactPOIids.add(p.Id);
+            poiToContactMap.put(p.Id, p.csuoee__Contact__c);
+        }
+        Map<Id, Integer> contactPOITaskMap = new Map<Id, Integer>();
+        for (AggregateResult ar : [
+            SELECT WhatId, COUNT(Id) totalCount 
+            FROM Task 
+            WHERE WhatId IN :contactPOIids AND WhoId NOT IN :contactIds WITH SECURITY_ENFORCED
+            GROUP BY WhatId
+        ]) {
+            Id contactId = poiToContactMap.get((Id) ar.get('WhatId'));
+            if (contactId != null) {
+                Integer current = contactPOITaskMap.containsKey(contactId) ? contactPOITaskMap.get(contactId) : 0;
+                contactPOITaskMap.put(contactId, current + (Integer) ar.get('totalCount'));
+            }
+        }
+
+
+        for (Contact c : contactList) {
+            Integer total = 
+                (taskCountMap.containsKey(c.Id) ? taskCountMap.get(c.Id) : 0) +
+                (smsCountMap.containsKey(c.Id) ? smsCountMap.get(c.Id) : 0) +
+                (contactPOITaskMap.containsKey(c.Id) ? contactPOITaskMap.get(c.Id) : 0);
+            c.csuoee__Count_of_Outbound_Activities__c = total;
+        }
+
+        update contactList;
+    }
+
+    public static void updateLeadActivities(List<Lead> leadList) {
+        if (leadList.isEmpty()) {
+            return;}
+
+        Set<Id> leadIds = new Set<Id>();
+        Map<Id, String> leadEmailMap = new Map<Id, String>();
+        for (Lead l : leadList) {
+            leadIds.add(l.Id);
+            if (String.isNotBlank(l.Email)) {
+                leadEmailMap.put(l.Id, l.Email.trim().toLowerCase());
+            }
+        }
+
+        List<csuoee__Program_of_Interest__c> poiList = [
+            SELECT Id, csuoee__Lead__c 
+            FROM csuoee__Program_of_Interest__c 
+            WHERE csuoee__Lead__c IN :leadIds
+        ];
+
+        Set<Id> poiIds = new Set<Id>();
+        Map<Id, Id> poiToLeadMap = new Map<Id, Id>();
+        for (csuoee__Program_of_Interest__c p : poiList) {
+            poiIds.add(p.Id);
+            poiToLeadMap.put(p.Id, p.csuoee__Lead__c);
+        }
+
+        Map<Id, Integer> taskCountMap = new Map<Id, Integer>();
+        for (AggregateResult ar : [
+            SELECT WhoId, COUNT(Id) totalCount 
+            FROM Task 
+            WHERE WhoId IN :leadIds AND Status = 'Completed' WITH SECURITY_ENFORCED
+            GROUP BY WhoId
+        ]) {
+            taskCountMap.put((Id) ar.get('WhoId'), (Integer) ar.get('totalCount'));
+        }
+
+        Map<Id, Integer> poiTaskMap = new Map<Id, Integer>();
+        for (AggregateResult ar : [
+            SELECT WhatId, COUNT(Id) totalCount 
+            FROM Task 
+            WHERE WhatId IN :poiIds WITH SECURITY_ENFORCED
+            GROUP BY WhatId
+        ]) {
+            Id leadId = poiToLeadMap.get((Id) ar.get('WhatId'));
+            if (leadId != null) {
+                Integer current = poiTaskMap.containsKey(leadId) ? poiTaskMap.get(leadId) : 0;
+                poiTaskMap.put(leadId, current + (Integer) ar.get('totalCount'));
+            }
+        }
+
+        for (Lead l : leadList) {
+            Integer total = 
+                (taskCountMap.containsKey(l.Id) ? taskCountMap.get(l.Id) : 0) +
+                (poiTaskMap.containsKey(l.Id) ? poiTaskMap.get(l.Id) : 0);
+            l.csuoee__Count_of_Outbound_Activities__c = total;
+        }
+
+        update leadList;
+    }
+}
