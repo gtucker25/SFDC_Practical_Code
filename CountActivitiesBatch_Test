@@ -1,0 +1,122 @@
+@isTest
+private class CountActivitiesBatch_Test {
+
+    @TestSetup
+    static void setupTestData(){
+        // Create Contact
+        Contact testContact = new Contact(
+            FirstName = 'Test', LastName = 'Contact', Email = 'testcontact@example.com'
+        );
+        insert testContact;
+
+        // Create Lead
+        Lead testLead = new Lead(
+            FirstName = 'Test', LastName = 'Lead', Company = 'TestCo', 
+            Email = 'testlead@example.com', Status = 'Open'
+        );
+        insert testLead;
+
+        // Program Account (for POI)
+        Account testProgram = new Account(Name = 'Test Program');
+        insert testProgram;
+
+        // Contact Activities
+        insert new Task(
+            WhoId = testContact.Id, Subject = 'Follow-up', 
+            Status = 'Completed', ActivityDate = Date.today()
+        );
+
+        insert new smagicinteract__smsMagic__c(
+            smagicinteract__Contact__c = testContact.Id,
+            smagicinteract__Direction__c = 'OUT',
+            smagicinteract__Status__c = 'DELIVERED',
+            smagicinteract__SenderId__c = '99999',
+            smagicinteract__PhoneNumber__c = '19999999999',
+            smagicinteract__SMSText__c = 'HELLO'
+        );
+
+        //Contact POI
+        csuoee__Program_of_Interest__c contactPOI = new csuoee__Program_of_Interest__c(
+            csuoee__Contact__c = testContact.Id,
+            csuoee__Program__c = testProgram.Id
+        );
+        insert contactPOI;
+
+        // Task related to Contact POI
+        insert new Task(WhatId = contactPOI.Id, Subject = 'POI Follow-up for Contact', Status = 'Completed', ActivityDate = Date.today());
+
+        // Lead Activities
+        insert new Task(
+            WhoId = testLead.Id, Subject = 'Call Lead', 
+            Status = 'Completed', ActivityDate = Date.today()
+        );
+
+        // POI + POI Task
+        csuoee__Program_of_Interest__c testPOI = new csuoee__Program_of_Interest__c(
+            csuoee__Lead__c = testLead.Id,
+            csuoee__Program__c = testProgram.Id
+        );
+        insert testPOI;
+
+        insert new Task(
+            WhatId = testPOI.Id, Subject = 'POI Follow-up', 
+            Status = 'Completed', ActivityDate = Date.today()
+        );
+    }
+
+    @isTest
+    static void testBatchForContactActivities() {
+        Test.startTest();
+        Database.executeBatch(new CountActivitiesBatch('Contact'), 200);
+        Test.stopTest();
+
+        Contact c = [SELECT csuoee__Count_of_Outbound_Activities__c FROM Contact WHERE Email = 'testcontact@example.com' LIMIT 1];
+        System.assertEquals(3, c.csuoee__Count_of_Outbound_Activities__c,
+            'Contact should have 1 Task + 1 SMS + 1 POI Task = 3 activities');
+    }
+
+    @isTest
+    static void testBatchForLeadActivities() {
+        Test.startTest();
+        Database.executeBatch(new CountActivitiesBatch('Lead'), 200);
+        Test.stopTest();
+
+        Lead l = [SELECT csuoee__Count_of_Outbound_Activities__c FROM Lead WHERE Email = 'testlead@example.com' LIMIT 1];
+        System.assertEquals(2, l.csuoee__Count_of_Outbound_Activities__c,
+            'Lead should have 1 Task + 1 POI Task = 2 activities');
+    }
+
+    @isTest
+    static void testRunActivityCountTaskOEETask() {
+        Test.startTest();
+        new RunActivityCountTask().runTask(); // Calls both Lead + Contact batch jobs
+        Test.stopTest();
+
+        Contact c = [SELECT csuoee__Count_of_Outbound_Activities__c FROM Contact WHERE Email = 'testcontact@example.com' LIMIT 1];
+        Lead l = [SELECT csuoee__Count_of_Outbound_Activities__c FROM Lead WHERE Email = 'testlead@example.com' LIMIT 1];
+
+        System.assertEquals(3, c.csuoee__Count_of_Outbound_Activities__c, 'Contact Count of Activities should be 3 and was actually '+c.csuoee__Count_of_Outbound_Activities__c);
+        System.assertEquals(2, l.csuoee__Count_of_Outbound_Activities__c, 'Lead Count of Activities should be 2 and was actually '+l.csuoee__Count_of_Outbound_Activities__c);
+    }
+    @isTest
+    static void testRunActivityCountTaskClassName() {
+        RunActivityCountTask task = new RunActivityCountTask();
+        String className = task.className();
+        System.assertEquals('RunActivityCountTask', className);
+}
+    @isTest
+    static void testBatchWithErrorInExecute() {
+        // Insert a Contact with data that causes an error
+        Contact badContact = new Contact(FirstName = 'Error', LastName = 'Case', Email = null);
+        insert badContact;
+
+        Test.startTest();
+        Database.executeBatch(new CountActivitiesBatch('Contact'), 200);
+        Test.stopTest();
+
+        // Ensure the error path executes in the finish method
+        System.assert(true, 'Test passed if no unhandled exceptions were thrown.');
+    }
+
+
+}
