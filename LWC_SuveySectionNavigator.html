@@ -1,0 +1,23 @@
+<template>
+    <lightning-card title="Survey Sections">
+        <table class="slds-table slds-table_cell-buffer slds-table_bordered">  
+        <!-- <table class="slds-table">   -->
+            <tbody>
+            <template for:each={surveySections} for:item="section">
+            <!-- <template for:each={sections} for:item="section"> -->
+                    <!-- <tr class={section.Style} key={section.Id} data-id={section.Id} onclick={handleSectionClick} onmouseover={handleMouseOver} onmouseout={handleMouseOut}> -->
+                    <tr class={section.Style} key={section.Id} data-id={section.Id} onclick={handleSectionClick}>
+                        <th scope="col">
+                            <div class="slds-size--3-of-5 slds-float_left">
+                                <p>{section.Name}</p>
+                            </div>                 
+                            <div class="slds-size--1-of-5 slds-float_right">
+                                <lightning-badge label={section.Status} class={section.StatusStyle}></lightning-badge>
+                            </div>
+                        </th>
+                    </tr>                
+            </template>
+            </tbody>
+        </table>
+    </lightning-card>
+</template>
