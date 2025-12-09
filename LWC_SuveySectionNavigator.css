@@ -1,0 +1,19 @@
+.row-badge-draft{
+    background: #F7F7C0;
+    color: #B6A975
+}
+
+.row-badge-completed{
+    background: #DCFAE9;
+    color: #81AA92;
+}
+
+.row-badge-view{
+    background: #DDE9FE;
+    color: #8196C6;
+}
+
+.row-badge-actionRequired{
+    background: #FFE6E6;
+    color: #D26A6A;
+}
